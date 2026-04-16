@@ -10,28 +10,28 @@ Version=10.5
 @EndOfDesignText@
 #Region Project Attributes
 ' Product: Models Code Generator for MiniORM
-' Version: 0.20
+' Version: 0.50
 ' License: MIT License
 ' Developer: Poon Yip Hoon (Aeric)
 #CommandLineArgs:
 #MergeLibraries: True 
 #End Region
 #Region Macros
-#Macro: Title, Build only, ide://run?File=%B4X%\B4JBuilder.exe&Args=-Task%3DBuild&Args=-BaseFolder%3D..&Args=-Obfuscate=False&Args=-Output%3D%PROJECT_NAME%
+'#Macro: Title, Build only, ide://run?File=%B4X%\B4JBuilder.exe&Args=-Task%3DBuild&Args=-BaseFolder%3D..&Args=-Obfuscate=False&Args=-Output%3D%PROJECT_NAME%
 #Macro: Title, Copy to Release, ide://run?file=%COMSPEC%&Args=/c&Args=copy&Args=%PROJECT_NAME%.jar&Args=%PROJECT%\..\release\%PROJECT_NAME%.jar
 #Macro: Title, Release folder, ide://run?file=%WINDIR%\SysWOW64\explorer.exe&Args=%PROJECT%\..\release
-'#Macro: Title, Copy to AddLibs, ide://run?file=%COMSPEC%&Args=/c&Args=copy&Args=%PROJECT_NAME%.jar&Args=%ADDITIONAL%
 #End Region
 #If Release
+' Copy to B4J Additional Libraries directory
 #CustomBuildAction: 2, %COMSPEC%, /c copy %PROJECT_NAME%.jar %ADDITIONAL%\%PROJECT_NAME%.jar
 #End If
 Sub Process_Globals
 	Private ModelFile As String
-	Type TypeParseResult (TypeName As String, Fields As Map)
+	Type TypeParseResult (TypeName As String, Fields As Map, IsCodeModule As Boolean)
 End Sub
 
 Sub AppStart (Args() As String)
-    Log("modgen v0.20 started...")
+    Log("modgen v0.50 started...")
     Try
         If Args.Length = 0 Then
             Log("Error: No IDE state JSON provided.")
@@ -60,7 +60,6 @@ Sub AppStart (Args() As String)
             ExitApplication
         End If
         
-        Log($"Generating table code for '${result.TypeName}'..."$)
         Dim generatedCode As String = GenerateModelTable(result)
         Dim Data() As Byte = (CRLF & generatedCode).GetBytes("UTF8")
         
@@ -102,19 +101,25 @@ Sub ExtractTypeWithDetails (code As String) As TypeParseResult
     res.Initialize
     res.TypeName = ""
     res.Fields.Initialize
+    res.IsCodeModule = False ' Default: Assume Class
     
-    ' Auto-detect Globals block (supports both Code Modules & Classes)
+    ' Auto-detect module type
     Dim startPos As Int = code.IndexOf("Sub Process_Globals")
-    If startPos = -1 Then startPos = code.IndexOf("Sub Class_Globals")
+    If startPos <> -1 Then
+        res.IsCodeModule = True
+    Else
+        startPos = code.IndexOf("Sub Class_Globals")
+        res.IsCodeModule = False
+    End If
     If startPos = -1 Then Return res
     
     Dim endMarker As String = "End Sub"
     Dim endPos As Int = code.IndexOf2(endMarker, startPos)
     If endPos = -1 Then Return res
     
-    ' Skip the "Sub ..._Globals" line itself
+    ' Skip the "Sub ..._Globals" declaration line itself
     Dim lineBreakPos As Int = code.IndexOf2(CRLF, startPos)
-    If lineBreakPos = -1 Then lineBreakPos = startPos + "Sub Process_Globals".Length
+    If lineBreakPos = -1 Then lineBreakPos = startPos + 19 ' Safe fallback
     Dim rawBlock As String = code.SubString2(lineBreakPos, endPos).Trim
     
     Dim lines() As String = Regex.Split("\r\n|\n|\r", rawBlock)
@@ -127,7 +132,6 @@ Sub ExtractTypeWithDetails (code As String) As TypeParseResult
         If line.Length = 0 Then Continue
         
         Dim lowerLine As String = line.ToLowerCase
-        ' Explicitly ignore variable declarations
         If lowerLine.StartsWith("dim ") Or lowerLine.StartsWith("private ") Or _
            lowerLine.StartsWith("public ") Or lowerLine.StartsWith("as ") Then Continue
            
@@ -138,7 +142,7 @@ Sub ExtractTypeWithDetails (code As String) As TypeParseResult
                 sb.Append(line.SubString2(0, line.Length - 1).Trim).Append(" ")
             Else
                 sb.Append(line).Append(" ")
-                inTypeBlock = False ' Exit capture after final line
+                inTypeBlock = False
             End If
         End If
     Next
@@ -222,14 +226,27 @@ Private Sub DecodeModulePath (ProjectDir As String, ModulePath As String) As Str
 End Sub
 
 Sub GenerateModelTable (result As TypeParseResult) As String
-    Log($"Generating code for ${result.TypeName} table..."$)
+    Log($"Generating code for '${result.TypeName}' table... (Module: ${IIf(result.IsCodeModule, "Code", "Class")})"$)
     Dim SB As StringBuilder
     SB.Initialize
     
     SB.Append("Public Sub ").Append($"Create${result.TypeName}Table"$).Append(CRLF)
+    
+    ' Inject DB init ONLY for Code Modules
+    If result.IsCodeModule Then
+        SB.Append(TAB).Append("Dim DB As MiniORM").Append(CRLF)
+        SB.Append(TAB).Append("DB = Main.DB").Append(CRLF)
+    End If
+	
+	' Add extra settings
+	SB.Append(TAB).Append("DB.ShowExtraLogs = True").Append(CRLF)
+	SB.Append(TAB).Append("DB.UseTimestamps = True").Append(CRLF)
+	SB.Append(TAB).Append("DB.QueryAddToBatch = True").Append(CRLF)
+	SB.Append(TAB).Append("DB.IfNotExist = True").Append(CRLF).Append(TAB).Append(CRLF)
+
     SB.Append(TAB).Append($"Log("Creating ${result.TypeName} table...")"$).Append(CRLF)
     SB.Append(TAB).Append("DB.Open").Append(CRLF)
-    SB.Append(TAB).Append($"DB.Table = "${result.TypeName}""$).Append(CRLF)
+    SB.Append(TAB).Append($"DB.Table = "tbl_${result.TypeName.ToLowerCase}""$).Append(CRLF) ' Add "tbl_" prefixes and use lowercase
     
     Dim fields As Map = result.Fields
     For Each Key As String In fields.Keys
@@ -243,7 +260,7 @@ Sub GenerateModelTable (result As TypeParseResult) As String
             Case "double", "float"
                 SB.Append(TAB).Append($"DB.Columns.Add(CreateMap("Name": "${Key}", "Type": DB.DECIMAL))"$).Append(CRLF)
             Case Else ' String / Text
-                SB.Append(TAB).Append($"DB.Columns.Add(CreateMap("Name": "${Key}"))"$).Append(CRLF)
+                SB.Append(TAB).Append($"DB.Columns.Add(CreateMap("Name": "${Key}", "Null": False))"$).Append(CRLF)
         End Select
     Next
     
