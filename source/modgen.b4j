@@ -68,9 +68,9 @@ Sub AppStart (Args() As String)
         Dim out As OutputStream = File.OpenOutput(outDir, outName, True)
         out.WriteBytes(Data, 0, Data.Length)
         out.Close
-        Log("✅ Code written successfully.")
+        Log("Code written successfully.")
     Catch
-        Log("🔴 Fatal Error: " & LastException.Message)
+        Log("Fatal Error: " & LastException.Message)
     End Try
     Log("modgen ended")
 End Sub
@@ -91,7 +91,7 @@ Sub ReadIdeStateJson (jsonPath As String) As String
         End If
         Return caret_context
     Catch
-        Log("⚠️ Error reading IDE state: " & LastException.Message)
+        Log("Error reading IDE state: " & LastException.Message)
         Return ""
     End Try
 End Sub
@@ -170,7 +170,7 @@ Sub ExtractTypeWithDetails (code As String) As TypeParseResult
         Dim lowerF As String = f.ToLowerCase
         Dim asPos As Int = lowerF.IndexOf(" as ")
         If asPos = -1 Then Continue
-        res.Fields.Put(f.SubString2(0, asPos).Trim, f.SubString(asPos + 4).Trim)
+        res.Fields.Put(f.SubString2(0, asPos).Replace("()", "").Trim, f.SubString(asPos + 4).Trim)
     Next
     
     Return res
@@ -210,7 +210,7 @@ Private Sub FindProjectModules (MainFile As String) As Map
             End If
         Next
     Catch
-        Log("⚠️ Error reading project file: " & LastException.Message)
+        Log("Error reading project file: " & LastException.Message)
     End Try
     Return result
 End Sub
@@ -256,7 +256,7 @@ Sub GenerateModelTable (result As TypeParseResult) As String
             Case "int", "long"
                 SB.Append(TAB).Append($"DB.Columns.Add(CreateMap("Name": "${Key}", "Type": DB.INTEGER, "Default": "0"))"$).Append(CRLF)
             Case "byte", "bytes"
-                SB.Append(TAB).Append($"DB.Columns.Add(CreateMap("Name": "${Key.Replace("()", "")}", "Type": DB.BLOB))"$).Append(CRLF)
+                SB.Append(TAB).Append($"DB.Columns.Add(CreateMap("Name": "${Key}", "Type": DB.BLOB))"$).Append(CRLF)
             Case "double", "float"
                 SB.Append(TAB).Append($"DB.Columns.Add(CreateMap("Name": "${Key}", "Type": DB.DECIMAL))"$).Append(CRLF)
             Case Else ' String / Text
