@@ -1,10 +1,12 @@
 ﻿AppType=StandardJava
 Build1=Default,com.puterise.modgen
-Group=Default Group
+Group=App
 Library1=jcore
+Library2=json
+Module1=|absolute|C:\B4X\Development\pakai-server-b4j\source\UsersModel
 NumberOfFiles=0
-NumberOfLibraries=1
-NumberOfModules=0
+NumberOfLibraries=2
+NumberOfModules=1
 Version=10.5
 @EndOfDesignText@
 #Region Project Attributes
@@ -15,11 +17,37 @@ Version=10.5
 #CommandLineArgs:
 #MergeLibraries: True 
 #End Region
-
+#Region Macros
+#Macro: Title, Update Manifest, ide://run?file=%ADDITIONAL%\..\B4X\manifest-writer.jar&Args=%PROJECT%&Args=%PROJECT%&Args=Version&Args=6.20
+#Macro: Title, Create B4xLib, ide://run?file=%JAVABIN%\jar.exe&WorkingDirectory=..&Args=-cMf&Args=..\release\%PROJECT_NAME%.b4xlib&Args=Snippets&Args=%PROJECT_NAME%.bas&Args=HelpHandler.b4x_excluded&Args=manifest.txt&Args=LICENSE
+#Macro: Title, Release folder, ide://run?file=%WINDIR%\SysWOW64\explorer.exe&Args=%PROJECT%\..\release
+#Macro: Title, Copy to AddLibs, ide://run?file=%COMSPEC%&Args=/c&Args=copy&Args=%PROJECT%\..\release\*.b4xlib&Args=%ADDITIONAL%
+#End Region
 Sub Process_Globals
 	
 End Sub
 
 Sub AppStart (Args() As String)
 	Log("Hello world!!!")
+	ReadIdeStateJson
+End Sub
+
+' Press Ctrl+R first
+Sub ReadIdeStateJson
+	' Read file
+	Dim s As String = File.ReadString(File.DirApp, "ide_state.json")
+	' Parse to Map
+	Dim m As Map = s.As(JSON).ToMap
+	' Get current working file and module
+	Dim main_file As String = m.Get("main_file")
+	Dim caret_position As Map = m.Get("caret_position")
+	Dim module As String = caret_position.Get("module")
+	Dim caret_context As String = caret_position.Get("caret_context")
+	Log(main_file)
+	Log(module)
+	Log(caret_context)
+	' Clean file
+	caret_context = caret_context.Replace("\r\n", " ").Replace("\t", " ").Replace(" _", " ")
+	Log(caret_context)
+	File.WriteString(File.DirApp, "caret_context.txt", caret_context)
 End Sub
