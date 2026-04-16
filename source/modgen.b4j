@@ -103,15 +103,20 @@ Sub ExtractTypeWithDetails (code As String) As TypeParseResult
     res.TypeName = ""
     res.Fields.Initialize
     
-    Dim startMarker As String = "Sub Class_Globals"
-    Dim endMarker As String = "End Sub"
-    Dim startPos As Int = code.IndexOf(startMarker)
+    ' Auto-detect Globals block (supports both Code Modules & Classes)
+    Dim startPos As Int = code.IndexOf("Sub Process_Globals")
+    If startPos = -1 Then startPos = code.IndexOf("Sub Class_Globals")
     If startPos = -1 Then Return res
     
+    Dim endMarker As String = "End Sub"
     Dim endPos As Int = code.IndexOf2(endMarker, startPos)
     If endPos = -1 Then Return res
     
-    Dim rawBlock As String = code.SubString2(startPos + startMarker.Length, endPos)
+    ' Skip the "Sub ..._Globals" line itself
+    Dim lineBreakPos As Int = code.IndexOf2(CRLF, startPos)
+    If lineBreakPos = -1 Then lineBreakPos = startPos + "Sub Process_Globals".Length
+    Dim rawBlock As String = code.SubString2(lineBreakPos, endPos).Trim
+    
     Dim lines() As String = Regex.Split("\r\n|\n|\r", rawBlock)
     Dim sb As StringBuilder
     sb.Initialize
@@ -122,7 +127,7 @@ Sub ExtractTypeWithDetails (code As String) As TypeParseResult
         If line.Length = 0 Then Continue
         
         Dim lowerLine As String = line.ToLowerCase
-        ' Skip variable declarations
+        ' Explicitly ignore variable declarations
         If lowerLine.StartsWith("dim ") Or lowerLine.StartsWith("private ") Or _
            lowerLine.StartsWith("public ") Or lowerLine.StartsWith("as ") Then Continue
            
@@ -133,7 +138,7 @@ Sub ExtractTypeWithDetails (code As String) As TypeParseResult
                 sb.Append(line.SubString2(0, line.Length - 1).Trim).Append(" ")
             Else
                 sb.Append(line).Append(" ")
-                inTypeBlock = False ' Exit after final line
+                inTypeBlock = False ' Exit capture after final line
             End If
         End If
     Next
