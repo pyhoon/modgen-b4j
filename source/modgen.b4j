@@ -3,10 +3,13 @@ Build1=Default,com.puterise.modgen
 Group=App
 Library1=jcore
 Library2=json
-Module1=|absolute|C:\B4X\Development\pakai-server-b4j\source\UsersModel
+Library3=miniormutils
+Module1=|absolute|C:\B4X\Development\MiniORMUtils-b4x\source\MiniORM
+Module2=RolesModel
+Module3=|absolute|C:\B4X\Development\pakai-server-b4j\source\UsersModel
 NumberOfFiles=0
-NumberOfLibraries=2
-NumberOfModules=1
+NumberOfLibraries=3
+NumberOfModules=3
 Version=10.5
 @EndOfDesignText@
 #Region Project Attributes
@@ -18,22 +21,37 @@ Version=10.5
 #MergeLibraries: True 
 #End Region
 #Region Macros
+#Macro: Title, Export state, ide://run?file=%ADDITIONAL%\CodeBundle2.jar&Args=%STATE1%&autosave=True
 #Macro: Title, Update Manifest, ide://run?file=%ADDITIONAL%\..\B4X\manifest-writer.jar&Args=%PROJECT%&Args=%PROJECT%&Args=Version&Args=6.20
 #Macro: Title, Create B4xLib, ide://run?file=%JAVABIN%\jar.exe&WorkingDirectory=..&Args=-cMf&Args=..\release\%PROJECT_NAME%.b4xlib&Args=Snippets&Args=%PROJECT_NAME%.bas&Args=HelpHandler.b4x_excluded&Args=manifest.txt&Args=LICENSE
 #Macro: Title, Release folder, ide://run?file=%WINDIR%\SysWOW64\explorer.exe&Args=%PROJECT%\..\release
 #Macro: Title, Copy to AddLibs, ide://run?file=%COMSPEC%&Args=/c&Args=copy&Args=%PROJECT%\..\release\*.b4xlib&Args=%ADDITIONAL%
 #End Region
 Sub Process_Globals
-	
+	Private DB As MiniORM
+	Private mColumns As List
+	Type TypeParseResult (TypeName As String, Fields As Map)
 End Sub
 
 Sub AppStart (Args() As String)
-	Log("Hello world!!!")
-	ReadIdeStateJson
+	DB.Initialize
+	DB.Settings.DBType = DB.SQLITE
+	mColumns.Initialize
+	Dim code As String = ReadIdeStateJson
+	'Dim ModelType As String = ExtractClassGlobalsCleaned(classglobal)
+	'File.WriteString(File.DirApp, "input.txt", ModelType)
+	'Dim ModelMap As Map = ExtractTypeToMap(classglobal)
+	'File.WriteString(File.DirApp, "input.txt", ModelMap.As(JSON).ToString)
+	Dim result As TypeParseResult = ExtractTypeWithDetails(code)
+	Log("📦 Type Name: " & result.TypeName)
+	Log("📋 Fields:")
+	For Each key As String In result.Fields.Keys
+		Log($"  • ${key} -> ${result.Fields.Get(key)}"$)
+	Next
 End Sub
 
 ' Press Ctrl+R first
-Sub ReadIdeStateJson
+Sub ReadIdeStateJson As String
 	' Read file
 	Dim s As String = File.ReadString(File.DirApp, "ide_state.json")
 	' Parse to Map
@@ -41,13 +59,245 @@ Sub ReadIdeStateJson
 	' Get current working file and module
 	Dim main_file As String = m.Get("main_file")
 	Dim caret_position As Map = m.Get("caret_position")
-	Dim module As String = caret_position.Get("module")
+	Dim module As String = caret_position.GetDefault("module", "")
 	Dim caret_context As String = caret_position.Get("caret_context")
-	Log(main_file)
-	Log(module)
-	Log(caret_context)
+	LogColor("main_file: " & main_file, DB.COLOR_BLUE)
+	LogColor("module: " & module, DB.COLOR_BLUE)
+	If module <> "" Then
+		Dim modules As Map = FindProjectModules(main_file)
+		LogColor("path: " & modules.Get(module), DB.COLOR_BLUE)
+	End If
+	Return caret_context
+	'LogColor("caret_context: " & caret_context, DB.COLOR_BLUE)
 	' Clean file
-	caret_context = caret_context.Replace("\r\n", " ").Replace("\t", " ").Replace(" _", " ")
-	Log(caret_context)
-	File.WriteString(File.DirApp, "caret_context.txt", caret_context)
+	'caret_context = caret_context.Replace("\r\n", " ").Replace("\t", " ").Replace(" _", " ")
+	
+	'LogColor("new caret_context: " & caret_context, DB.COLOR_RED)
+	'File.WriteString(File.DirApp, "caret_context.txt", caret_context)
+	'Return caret_context
 End Sub
+
+Sub ExtractTypeWithDetails (code As String) As TypeParseResult
+	Dim res As TypeParseResult
+	res.Initialize
+	res.TypeName = ""
+	res.Fields.Initialize
+	
+	Dim startMarker As String = "Sub Class_Globals"
+	Dim endMarker As String = "End Sub"
+	
+	Dim startPos As Int = code.IndexOf(startMarker)
+	If startPos = -1 Then Return res
+	
+	Dim endPos As Int = code.IndexOf2(endMarker, startPos)
+	If endPos = -1 Then Return res
+	
+	Dim rawBlock As String = code.SubString2(startPos + startMarker.Length, endPos)
+	Dim lines() As String = Regex.Split("\r\n|\n|\r", rawBlock)
+	
+	Dim sb As StringBuilder
+	sb.Initialize
+	
+	' Process lines: strip comments & handle B4J line continuation (_)
+	For Each rawLine As String In lines
+		Dim line As String = RemoveInlineComment(rawLine).Trim
+		If line.Length = 0 Then Continue
+		
+		' B4J uses " _" at the end of a line for continuation
+		If line.EndsWith("_") Then
+			' Remove continuation char and join with next line
+			sb.Append(line.SubString2(0, line.Length - 1).Trim).Append(" ")
+		Else
+			sb.Append(line).Append(" ")
+		End If
+	Next
+	
+	Dim cleanedBlock As String = sb.ToString.Trim
+	
+	' Collapse multiple spaces/newlines into single spaces
+	cleanedBlock = Regex.Replace("\s+", cleanedBlock, " ").Trim
+	
+	' Case-insensitive search for "Type "
+	Dim lowerBlock As String = cleanedBlock.ToLowerCase
+	Dim typeIdx As Int = lowerBlock.IndexOf("type ")
+	If typeIdx = -1 Then Return res
+	
+	'Dim openParen As Int = cleanedBlock.IndexOf("(", typeIdx)
+	Dim openParen As Int = cleanedBlock.IndexOf2("(", typeIdx)
+	Dim closeParen As Int = cleanedBlock.LastIndexOf(")")
+	If openParen = -1 Or closeParen = -1 Then Return res
+	
+	' Extract Type Name
+	res.TypeName = cleanedBlock.SubString2(typeIdx + 5, openParen).Trim
+	
+	' Extract & Parse Fields
+	Dim fieldsPart As String = cleanedBlock.SubString2(openParen + 1, closeParen).Trim
+	Dim fields() As String = Regex.Split(",", fieldsPart)
+	
+	For Each f As String In fields
+		f = f.Trim
+		If f.Length = 0 Then Continue
+		
+		Dim lowerF As String = f.ToLowerCase
+		Dim asPos As Int = lowerF.IndexOf(" as ")
+		If asPos = -1 Then Continue
+		
+		Dim fieldName As String = f.SubString2(0, asPos).Trim
+		Dim fieldType As String = f.SubString(asPos + 4).Trim
+		res.Fields.Put(fieldName, fieldType)
+	Next
+	
+	Return res
+End Sub
+
+' 🔒 Safely removes ' comments while ignoring ' inside ""
+Sub RemoveInlineComment (line As String) As String
+	Dim inString As Boolean = False
+	For i = 0 To line.Length - 1
+		Dim c As String = line.SubString2(i, i + 1)
+		If c = QUOTE Then
+			inString = Not(inString)
+		Else If c = "'" And Not(inString) Then
+			Return line.SubString2(0, i)
+		End If
+	Next
+	Return line
+End Sub
+
+'Sub ExtractTypeToMap (code As String) As Map
+'	Dim result As Map
+'	result.Initialize
+'	
+'	Dim startMarker As String = "Sub Class_Globals"
+'	Dim endMarker As String = "End Sub"
+'	
+'	Dim startPos As Int = code.IndexOf(startMarker)
+'	If startPos = -1 Then Return result
+'	
+'	Dim endPos As Int = code.IndexOf2(endMarker, startPos)
+'	If endPos = -1 Then Return result
+'	
+'	Dim rawBlock As String = code.SubString2(startPos + startMarker.Length, endPos)
+'	Dim lines() As String = Regex.Split("\r\n|\n|\r", rawBlock)
+'	Dim sb As StringBuilder
+'	sb.Initialize
+'	
+'	' 1️⃣ Strip comments line-by-line
+'	For Each line As String In lines
+'		sb.Append(RemoveInlineComment(line).Trim).Append(" ")
+'	Next
+'	Dim cleanedBlock As String = sb.ToString.Trim
+'	
+'	' 2️⃣ Handle line continuations (_) and normalize whitespace
+'	cleanedBlock = cleanedBlock.Replace("_", " ").Replace(CRLF, " ").Replace(Chr(10), " ").Replace(Chr(13), " ")
+'	cleanedBlock = Regex.Replace("\s+", cleanedBlock, " ").Trim
+'	
+'	' 3️⃣ Extract content between Type's ( and )
+'	Dim openParen As Int = cleanedBlock.IndexOf("(")
+'	Dim closeParen As Int = cleanedBlock.LastIndexOf(")")
+'	If openParen = -1 Or closeParen = -1 Then Return result
+'	
+'	Dim fieldsPart As String = cleanedBlock.SubString2(openParen + 1, closeParen).Trim
+'	
+'	' 4️⃣ Split by comma and parse "name As type" into Map
+'	Dim fields() As String = Regex.Split(",", fieldsPart)
+'	For Each f As String In fields
+'		f = f.Trim
+'		If f.Length = 0 Then Continue
+'		
+'		Dim lowerF As String = f.ToLowerCase
+'		Dim asPos As Int = lowerF.IndexOf(" as ")
+'		If asPos = -1 Then Continue
+'		
+'		Dim fieldName As String = f.SubString2(0, asPos).Trim
+'		Dim fieldType As String = f.SubString(asPos + 4).Trim ' " as " = 4 chars
+'		result.Put(fieldName, fieldType)
+'	Next
+'	
+'	Return result
+'End Sub
+
+'Sub ExtractCaretContext (input As String)
+'	' Remove string before Type keyword
+'	Dim start As Int = input.IndexOf("Type")
+'	If start > -1 Then
+'		input = input.SubString(start+4)
+'		Log(input)
+'	End If
+'	Dim stop As Int = input.IndexOf("(")
+'	If stop > -1 Then
+'		' Get model name before open parentheses
+'		Dim modelName As String = input.SubString2(0, stop)
+'		LogColor("model: " & modelName, DB.COLOR_BLUE)
+'	End If
+'	' Remove Sub from back
+''	Dim stop As Int = input.LastIndexOf("Sub")
+''	If stop > -1 Then
+''		input = input.SubString2(0, stop)
+''	End If
+'	' Remove End Sub from back
+'	Dim stop As Int = input.LastIndexOf("End")
+'	If stop > -1 Then
+'		input = input.SubString2(0, stop)
+'	End If
+'	LogColor("input: " & input, DB.COLOR_BLUE)
+''	input = input.Replace("Sub", "").Replace("Class_Globals", "")
+'	File.WriteString(File.DirApp, "input.txt", input)
+'End Sub
+
+Private Sub FindProjectModules (MainFile As String) As Map
+    Dim result As Map = CreateMap()
+    Dim ProjectDir As String = File.GetFileParent(MainFile)
+    Dim lines As List = File.ReadList(MainFile, "")
+    For Each line As String In lines
+        If line = "@EndOfDesignText@" Then Exit
+        Dim m As Matcher = Regex.Matcher("([^=]*)=(.*)", line)
+        m.Find
+        Dim key As String = m.Group(1)
+        Dim value As String = m.Group(2)
+        If key.StartsWith("Module") Then
+            Dim path As String = DecodeModulePath(ProjectDir, value)
+            Dim ModuleName As String = File.GetName(path)
+            result.Put(ModuleName, path & ".bas")
+        End If
+    Next
+    Return result
+End Sub
+
+Private Sub DecodeModulePath (ProjectDir As String, ModulePath As String) As String
+    If ModulePath.StartsWith("|relative|") Then
+        ModulePath = File.Combine(ProjectDir, ModulePath.SubString("|relative|".Length))
+    Else If ModulePath.StartsWith("|absolute|") Then
+        ModulePath = ModulePath.SubString("|absolute|".Length)
+    Else
+        ModulePath = File.Combine(ProjectDir, ModulePath)
+    End If
+    Return ModulePath
+End Sub
+
+'Sub GenerateModelTable
+'	
+'	Dim s As String = $"
+''Public Sub AddUsersTable
+'	LogColor("Creating users table...", COLOR_BLUE)
+'
+'	DB.Open
+'	DB.Table = "tbl_users"
+'	DB.Columns.Add(CreateMap("Name": "user_name", "Null": False))
+'	DB.Columns.Add(CreateMap("Name": "user_email", "Null": False))
+'	DB.Columns.Add(CreateMap("Name": "user_mobile", "Default": ""))
+'	DB.Columns.Add(CreateMap("Name": "admin", "Null": False, "Type": DB.INTEGER, "Default": "0"))
+'	DB.Columns.Add(CreateMap("Name": "active", "Null": False, "Type": DB.INTEGER, "Default": "0"))
+'	DB.Create
+'	
+'	Wait For (DB.ExecuteBatchAsync) Complete (Success As Boolean)
+'	If Success Then
+'		LogColor("Table is created successfully!", COLOR_BLUE)
+'	Else
+'		LogColor("Table creation failed!", COLOR_RED)
+'	End If
+'	DB.Close
+''End Sub	
+'	"$
+'	Log(s)
+'End Sub
