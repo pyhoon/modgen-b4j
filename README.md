@@ -1,2 +1,3 @@
 # modgen-b4j
-MiniORM Models Code Generator
+MiniORM Models Code Generator \
+version: 0.50
