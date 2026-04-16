@@ -62,11 +62,11 @@ Sub AppStart (Args() As String)
         
         Log($"Generating table code for '${result.TypeName}'..."$)
         Dim generatedCode As String = GenerateModelTable(result)
-        Dim Data() As Byte = generatedCode.GetBytes("UTF8")
+        Dim Data() As Byte = (CRLF & generatedCode).GetBytes("UTF8")
         
         Dim outDir As String = File.GetFileParent(ModelFile)
         Dim outName As String = File.GetName(ModelFile)
-        Dim out As OutputStream = File.OpenOutput(outDir, outName, False)
+        Dim out As OutputStream = File.OpenOutput(outDir, outName, True)
         out.WriteBytes(Data, 0, Data.Length)
         out.Close
         Log("✅ Code written successfully.")
