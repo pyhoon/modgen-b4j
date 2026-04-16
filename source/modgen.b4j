@@ -29,7 +29,7 @@ Version=10.5
 #End If
 Sub Process_Globals
 	Private ModelFile As String
-	Private Const COLOR_BLUE As Int = 0xff0000ff
+	'Private Const COLOR_BLUE As Int = 0xff0000ff
 	Type TypeParseResult (TypeName As String, Fields As Map)
 End Sub
 
@@ -239,7 +239,7 @@ Private Sub DecodeModulePath (ProjectDir As String, ModulePath As String) As Str
 End Sub
 
 Sub GenerateModelTable (result As TypeParseResult) As String
-	LogColor($"Generating code for ${result.TypeName} table..."$, COLOR_BLUE)
+	Log($"Generating code for ${result.TypeName} table..."$)
 	Dim SB As StringBuilder
 	SB.Initialize
 	SB.Append("Public Sub ").Append($"Create${result.TypeName}Table"$).Append(CRLF)
