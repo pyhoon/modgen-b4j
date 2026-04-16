@@ -1,0 +1,25 @@
+﻿AppType=StandardJava
+Build1=Default,com.puterise.modgen
+Group=Default Group
+Library1=jcore
+NumberOfFiles=0
+NumberOfLibraries=1
+NumberOfModules=0
+Version=10.5
+@EndOfDesignText@
+#Region Project Attributes
+' Product: Models Code Generator for MiniORM
+' Version: 0.10
+' License: MIT License
+' Developer: Poon Yip Hoon (Aeric)
+#CommandLineArgs:
+#MergeLibraries: True 
+#End Region
+
+Sub Process_Globals
+	
+End Sub
+
+Sub AppStart (Args() As String)
+	Log("Hello world!!!")
+End Sub
