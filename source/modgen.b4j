@@ -10,265 +10,247 @@ Version=10.5
 @EndOfDesignText@
 #Region Project Attributes
 ' Product: Models Code Generator for MiniORM
-' Version: 0.10
+' Version: 0.20
 ' License: MIT License
 ' Developer: Poon Yip Hoon (Aeric)
 #CommandLineArgs:
 #MergeLibraries: True 
 #End Region
 #Region Macros
-'#Macro: Title, Export state, ide://run?file=%ADDITIONAL%\CodeBundle2.jar&Args=%STATE1%&autosave=True
-'#Macro: Title, Update Manifest, ide://run?file=%ADDITIONAL%\..\B4X\manifest-writer.jar&Args=%PROJECT%&Args=%PROJECT%&Args=Version&Args=0.10
 #Macro: Title, Build only, ide://run?File=%B4X%\B4JBuilder.exe&Args=-Task%3DBuild&Args=-BaseFolder%3D..&Args=-Obfuscate=False&Args=-Output%3D%PROJECT_NAME%
 #Macro: Title, Copy to Release, ide://run?file=%COMSPEC%&Args=/c&Args=copy&Args=%PROJECT_NAME%.jar&Args=%PROJECT%\..\release\%PROJECT_NAME%.jar
-#Macro: Title, Copy to AddLibs, ide://run?file=%COMSPEC%&Args=/c&Args=copy&Args=%PROJECT%\..\release\%PROJECT_NAME%.jar&Args=%ADDITIONAL%
 #Macro: Title, Release folder, ide://run?file=%WINDIR%\SysWOW64\explorer.exe&Args=%PROJECT%\..\release
+'#Macro: Title, Copy to AddLibs, ide://run?file=%COMSPEC%&Args=/c&Args=copy&Args=%PROJECT_NAME%.jar&Args=%ADDITIONAL%
 #End Region
 #If Release
-#CustomBuildAction: 2, %COMSPEC%, /c copy %PROJECT%\Objects\%PROJECT_NAME%.jar %ADDITIONAL%\%PROJECT_NAME%.jar
+#CustomBuildAction: 2, %COMSPEC%, /c copy %PROJECT_NAME%.jar %ADDITIONAL%\%PROJECT_NAME%.jar
 #End If
 Sub Process_Globals
 	Private ModelFile As String
-	'Private Const COLOR_BLUE As Int = 0xff0000ff
 	Type TypeParseResult (TypeName As String, Fields As Map)
 End Sub
 
 Sub AppStart (Args() As String)
-	Log("ModGen v0.10 started...")
-	Log("Reading args...")
-	If Args.Length = 0 Then
-		Log("No source file")
-		Log("ModGen ended")
-		ExitApplication
-	End If
-	Dim code As String = ReadIdeStateJson(Args(0))
-	'Dim ModelType As String = ExtractClassGlobalsCleaned(classglobal)
-	'File.WriteString(File.DirApp, "input.txt", ModelType)
-	'Dim ModelMap As Map = ExtractTypeToMap(classglobal)
-	'File.WriteString(File.DirApp, "input.txt", ModelMap.As(JSON).ToString)
-	Dim result As TypeParseResult = ExtractTypeWithDetails(code)
-	'Log("📦 Type Name: " & result.TypeName)
-	'Log("📋 Fields:")
-	'For Each key As String In result.Fields.Keys
-	'	Log($"  • ${key} -> ${result.Fields.Get(key)}"$)
-	'Next
-	Dim s As String = GenerateModelTable(result)
-	s = CRLF & CRLF & s
-	'Log(s)
-	'File.WriteString(File.DirApp, "input.txt", s)
-	' Open Model file and write
-	'ModelFile
-	'File.OpenOutput(File.DirApp, "output.txt", True)
-	Dim Data() As Byte = s.GetBytes("UTF8")
-	Dim out As OutputStream = File.OpenOutput(ModelFile, "", True)
-	out.WriteBytes(Data, 0, Data.Length)
-	out.Close
-	Log("ModGen ended")
-	'ExitApplication
+    Log("modgen v0.20 started...")
+    Try
+        If Args.Length = 0 Then
+            Log("Error: No IDE state JSON provided.")
+            Log("modgen ended")
+            ExitApplication
+        End If
+        
+        Log("Reading args...")
+        Dim code As String = ReadIdeStateJson(Args(0))
+        If code.Length = 0 Then
+            Log("Error: Could not extract editor context from IDE state.")
+            Log("modgen ended")
+            ExitApplication
+        End If
+        
+        Dim result As TypeParseResult = ExtractTypeWithDetails(code)
+        If result.TypeName.Length = 0 Then
+            Log("Warning: No 'Type' definition found in Sub Class_Globals.")
+            Log("modgen ended")
+            ExitApplication
+        End If
+        
+        If ModelFile.Length = 0 Then
+            Log("Error: Target module path could not be resolved.")
+            Log("modgen ended")
+            ExitApplication
+        End If
+        
+        Log($"Generating table code for '${result.TypeName}'..."$)
+        Dim generatedCode As String = GenerateModelTable(result)
+        Dim Data() As Byte = generatedCode.GetBytes("UTF8")
+        
+        Dim outDir As String = File.GetFileParent(ModelFile)
+        Dim outName As String = File.GetName(ModelFile)
+        Dim out As OutputStream = File.OpenOutput(outDir, outName, False)
+        out.WriteBytes(Data, 0, Data.Length)
+        out.Close
+        Log("✅ Code written successfully.")
+    Catch
+        Log("🔴 Fatal Error: " & LastException.Message)
+    End Try
+    Log("modgen ended")
 End Sub
 
-' Press Ctrl+R first
-Sub ReadIdeStateJson (json As String) As String
-	' Read file
-	'Dim s As String = File.ReadString(File.DirApp, "ide_state.json")
-	' Parse to Map
-	'Dim m As Map = IdeState.As(JSON).ToMap
-	Dim IdeState As Map = File.ReadString(json, "").As(JSON).ToMap
-	' Get current working file and module
-	Dim main_file As String = IdeState.Get("main_file")
-	Dim caret_position As Map = IdeState.Get("caret_position")
-	Dim module As String = caret_position.GetDefault("module", "")
-	Dim caret_context As String = caret_position.Get("caret_context")
-	'LogColor("main_file: " & main_file, COLOR_BLUE)
-	'LogColor("module: " & module, COLOR_BLUE)
-	If module <> "" Then
-		Dim modules As Map = FindProjectModules(main_file)
-		'LogColor("path: " & modules.Get(module), COLOR_BLUE)
-		ModelFile = modules.Get(module)
-	End If
-	Return caret_context
-	'LogColor("caret_context: " & caret_context, COLOR_BLUE)
-	' Clean file
-	'caret_context = caret_context.Replace("\r\n", " ").Replace("\t", " ").Replace(" _", " ")
-	
-	'LogColor("new caret_context: " & caret_context, DB.COLOR_RED)
-	'File.WriteString(File.DirApp, "caret_context.txt", caret_context)
-	'Return caret_context
+Sub ReadIdeStateJson (jsonPath As String) As String
+    Try
+        Dim jsonContent As String = File.ReadString(jsonPath, "")
+        Dim IdeState As Map = jsonContent.As(JSON).ToMap
+        
+        Dim main_file As String = IdeState.GetDefault("main_file", "")
+        Dim caret_position As Map = IdeState.GetDefault("caret_position", CreateMap())
+        Dim module As String = caret_position.GetDefault("module", "")
+        Dim caret_context As String = caret_position.GetDefault("caret_context", "")
+        
+        If module <> "" And main_file <> "" Then
+            Dim modules As Map = FindProjectModules(main_file)
+            ModelFile = modules.GetDefault(module, "")
+        End If
+        Return caret_context
+    Catch
+        Log("⚠️ Error reading IDE state: " & LastException.Message)
+        Return ""
+    End Try
 End Sub
 
 Sub ExtractTypeWithDetails (code As String) As TypeParseResult
-	Dim res As TypeParseResult
-	res.Initialize
-	res.TypeName = ""
-	res.Fields.Initialize
-	
-	Dim startMarker As String = "Sub Class_Globals"
-	Dim endMarker As String = "End Sub"
-	
-	Dim startPos As Int = code.IndexOf(startMarker)
-	If startPos = -1 Then Return res
-	
-	Dim endPos As Int = code.IndexOf2(endMarker, startPos)
-	If endPos = -1 Then Return res
-	
-	Dim rawBlock As String = code.SubString2(startPos + startMarker.Length, endPos)
-	Dim lines() As String = Regex.Split("\r\n|\n|\r", rawBlock)
-	
-	Dim sb As StringBuilder
-	sb.Initialize
-	Dim inTypeBlock As Boolean = False
-	
-	' Process lines: strip comments & handle B4J line continuation (_)
-	For Each rawLine As String In lines
-		Dim line As String = RemoveInlineComment(rawLine).Trim
-		If line.Length = 0 Then Continue
-		
-		' B4J uses " _" at the end of a line for continuation
-		'If line.EndsWith("_") Then
-		'	' Remove continuation char and join with next line
-		'	sb.Append(line.SubString2(0, line.Length - 1).Trim).Append(" ")
-		'Else
-		'	sb.Append(line).Append(" ")
-		'End If
-		
-		Dim lowerLine As String = line.ToLowerCase
-		
-		' 🚫 Explicitly ignore variable declarations
-		If lowerLine.StartsWith("dim ") Or lowerLine.StartsWith("private ") Or lowerLine.StartsWith("public ") Or lowerLine.StartsWith("as ") Then
-			Continue
-		End If
-		
-		' ✅ Detect Type definition start
-		If lowerLine.StartsWith("type ") Then
-			inTypeBlock = True
-		End If
-		
-		' 📦 Only process lines belonging to the Type block
-		If inTypeBlock Then
-			If line.EndsWith("_") Then
-				' B4J line continuation: strip trailing "_" and join
-				sb.Append(line.SubString2(0, line.Length - 1).Trim).Append(" ")
-			Else
-				' Final line of Type definition
-				sb.Append(line).Append(" ")
-				inTypeBlock = False ' Exit capture after this line
-			End If
-		End If
-	Next
-	
-	Dim cleanedBlock As String = sb.ToString.Trim
-	
-	' Collapse multiple spaces/newlines into single spaces
-	cleanedBlock = Regex.Replace("\s+", cleanedBlock, " ").Trim
-	
-	' Case-insensitive search for "Type "
-	Dim lowerBlock As String = cleanedBlock.ToLowerCase
-	Dim typeIdx As Int = lowerBlock.IndexOf("type ")
-	If typeIdx = -1 Then Return res
-	
-	'Dim openParen As Int = cleanedBlock.IndexOf("(", typeIdx)
-	Dim openParen As Int = cleanedBlock.IndexOf2("(", typeIdx)
-	Dim closeParen As Int = cleanedBlock.LastIndexOf(")")
-	If openParen = -1 Or closeParen = -1 Then Return res
-	
-	' Extract Type Name
-	res.TypeName = cleanedBlock.SubString2(typeIdx + 5, openParen).Trim
-	
-	' Extract & Parse Fields
-	Dim fieldsPart As String = cleanedBlock.SubString2(openParen + 1, closeParen).Trim
-	Dim fields() As String = Regex.Split(",", fieldsPart)
-	
-	For Each f As String In fields
-		f = f.Trim
-		If f.Length = 0 Then Continue
-		
-		Dim lowerF As String = f.ToLowerCase
-		Dim asPos As Int = lowerF.IndexOf(" as ")
-		If asPos = -1 Then Continue
-		
-		Dim fieldName As String = f.SubString2(0, asPos).Trim
-		Dim fieldType As String = f.SubString(asPos + 4).Trim
-		res.Fields.Put(fieldName, fieldType)
-	Next
-	
-	Return res
+    Dim res As TypeParseResult
+    res.Initialize
+    res.TypeName = ""
+    res.Fields.Initialize
+    
+    Dim startMarker As String = "Sub Class_Globals"
+    Dim endMarker As String = "End Sub"
+    Dim startPos As Int = code.IndexOf(startMarker)
+    If startPos = -1 Then Return res
+    
+    Dim endPos As Int = code.IndexOf2(endMarker, startPos)
+    If endPos = -1 Then Return res
+    
+    Dim rawBlock As String = code.SubString2(startPos + startMarker.Length, endPos)
+    Dim lines() As String = Regex.Split("\r\n|\n|\r", rawBlock)
+    Dim sb As StringBuilder
+    sb.Initialize
+    Dim inTypeBlock As Boolean = False
+    
+    For Each rawLine As String In lines
+        Dim line As String = RemoveInlineComment(rawLine).Trim
+        If line.Length = 0 Then Continue
+        
+        Dim lowerLine As String = line.ToLowerCase
+        ' Skip variable declarations
+        If lowerLine.StartsWith("dim ") Or lowerLine.StartsWith("private ") Or _
+           lowerLine.StartsWith("public ") Or lowerLine.StartsWith("as ") Then Continue
+           
+        If lowerLine.StartsWith("type ") Then inTypeBlock = True
+        
+        If inTypeBlock Then
+            If line.EndsWith("_") Then
+                sb.Append(line.SubString2(0, line.Length - 1).Trim).Append(" ")
+            Else
+                sb.Append(line).Append(" ")
+                inTypeBlock = False ' Exit after final line
+            End If
+        End If
+    Next
+    
+    Dim cleanedBlock As String = sb.ToString.Trim
+    If cleanedBlock.Length = 0 Then Return res
+    
+    cleanedBlock = Regex.Replace("\s+", cleanedBlock, " ").Trim
+    Dim lowerBlock As String = cleanedBlock.ToLowerCase
+    Dim typeIdx As Int = lowerBlock.IndexOf("type ")
+    If typeIdx = -1 Then Return res
+    
+    Dim openParen As Int = cleanedBlock.IndexOf2("(", typeIdx)
+    Dim closeParen As Int = cleanedBlock.LastIndexOf(")")
+    If openParen = -1 Or closeParen = -1 Then Return res
+    
+    res.TypeName = cleanedBlock.SubString2(typeIdx + 5, openParen).Trim
+    
+    Dim fieldsPart As String = cleanedBlock.SubString2(openParen + 1, closeParen).Trim
+    Dim fields() As String = Regex.Split(",", fieldsPart)
+    
+    For Each f As String In fields
+        f = f.Trim
+        If f.Length = 0 Then Continue
+        Dim lowerF As String = f.ToLowerCase
+        Dim asPos As Int = lowerF.IndexOf(" as ")
+        If asPos = -1 Then Continue
+        res.Fields.Put(f.SubString2(0, asPos).Trim, f.SubString(asPos + 4).Trim)
+    Next
+    
+    Return res
 End Sub
 
-' 🔒 Safely removes ' comments while ignoring ' inside ""
 Sub RemoveInlineComment (line As String) As String
-	Dim inString As Boolean = False
-	For i = 0 To line.Length - 1
-		Dim c As String = line.SubString2(i, i + 1)
-		If c = QUOTE Then
-			inString = Not(inString)
-		Else If c = "'" And Not(inString) Then
-			Return line.SubString2(0, i)
-		End If
-	Next
-	Return line
+    Dim inString As Boolean = False
+    For i = 0 To line.Length - 1
+        Dim c As String = line.SubString2(i, i + 1)
+        If c = QUOTE Then
+            inString = Not(inString)
+        Else If c = "'" And Not(inString) Then
+            Return line.SubString2(0, i)
+        End If
+    Next
+    Return line
 End Sub
 
 Private Sub FindProjectModules (MainFile As String) As Map
     Dim result As Map = CreateMap()
     Dim ProjectDir As String = File.GetFileParent(MainFile)
-    Dim lines As List = File.ReadList(MainFile, "")
-    For Each line As String In lines
-        If line = "@EndOfDesignText@" Then Exit
-        Dim m As Matcher = Regex.Matcher("([^=]*)=(.*)", line)
-        m.Find
-        Dim key As String = m.Group(1)
-        Dim value As String = m.Group(2)
-        If key.StartsWith("Module") Then
-            Dim path As String = DecodeModulePath(ProjectDir, value)
-            Dim ModuleName As String = File.GetName(path)
-            result.Put(ModuleName, path & ".bas")
-        End If
-    Next
+    Try
+        Dim lines As List = File.ReadList(MainFile, "")
+        For Each line As String In lines
+            If line.Trim = "@EndOfDesignText@" Then Exit
+            Dim m As Matcher = Regex.Matcher("^\s*([^=]+?)\s*=\s*(.+)", line.Trim)
+            If m.Find Then
+                Dim key As String = m.Group(1).Trim
+                Dim value As String = m.Group(2).Trim
+                If key.StartsWith("Module") Then
+                    Dim path As String = DecodeModulePath(ProjectDir, value)
+                    ' Prevent double .bas extension
+                    Dim moduleName As String = File.GetName(path)
+                    If moduleName.EndsWith(".bas") Then moduleName = moduleName.SubString2(0, moduleName.Length - 4)
+                    result.Put(moduleName, path & ".bas")
+                End If
+            End If
+        Next
+    Catch
+        Log("⚠️ Error reading project file: " & LastException.Message)
+    End Try
     Return result
 End Sub
 
 Private Sub DecodeModulePath (ProjectDir As String, ModulePath As String) As String
     If ModulePath.StartsWith("|relative|") Then
-        ModulePath = File.Combine(ProjectDir, ModulePath.SubString("|relative|".Length))
+        Return File.Combine(ProjectDir, ModulePath.SubString("|relative|".Length))
     Else If ModulePath.StartsWith("|absolute|") Then
-        ModulePath = ModulePath.SubString("|absolute|".Length)
+        Return ModulePath.SubString("|absolute|".Length)
     Else
-        ModulePath = File.Combine(ProjectDir, ModulePath)
+        Return File.Combine(ProjectDir, ModulePath)
     End If
-    Return ModulePath
 End Sub
 
 Sub GenerateModelTable (result As TypeParseResult) As String
-	Log($"Generating code for ${result.TypeName} table..."$)
-	Dim SB As StringBuilder
-	SB.Initialize
-	SB.Append("Public Sub ").Append($"Create${result.TypeName}Table"$).Append(CRLF)
-	SB.Append(TAB).Append($"LogColor("Creating ${result.TypeName} table...", DB.COLOR_BLUE)"$).Append(CRLF)
-	SB.Append(TAB).Append(CRLF)
-	SB.Append(TAB).Append("DB.Open").Append(CRLF)
-	SB.Append(TAB).Append($"DB.Table = "${result.TypeName}""$).Append(CRLF)
-	Dim fields As Map = result.Fields
-	For Each Key As String In fields.Keys
-		Log($"  • ${Key} -> ${fields.Get(Key)}"$)
-		Dim Value As String = fields.Get(Key)
-		Select Value
-			Case "Int"
-				SB.Append(TAB).Append($"DB.Columns.Add(CreateMap("Name": "${Key}", "Type": DB.INTEGER, "Default": "0"))"$).Append(CRLF)		
-			Case "Byte"
-				SB.Append(TAB).Append($"DB.Columns.Add(CreateMap("Name": "${Key.Replace("()", "")}", "Type": DB.BLOB))"$).Append(CRLF)	
-			Case Else ' String
-				SB.Append(TAB).Append($"DB.Columns.Add(CreateMap("Name": "${Key}"))"$).Append(CRLF)
-		End Select	
-	Next
-	SB.Append(TAB).Append("DB.Create").Append(CRLF)
-	SB.Append(TAB).Append(CRLF)
-	SB.Append(TAB).Append("Wait For (DB.ExecuteBatchAsync) Complete (Success As Boolean)").Append(CRLF)
-	SB.Append(TAB).Append("If Success Then").Append(CRLF)
-	SB.Append(TAB).Append(TAB).Append($"LogColor("Table is created successfully!", DB.COLOR_BLUE)"$).Append(CRLF)
-	SB.Append(TAB).Append("Else").Append(CRLF)
-	SB.Append(TAB).Append(TAB).Append($"LogColor("Table creation failed!", DB.COLOR_RED)"$).Append(CRLF)
-	SB.Append(TAB).Append("End If").Append(CRLF)
-	SB.Append(TAB).Append("DB.Close").Append(CRLF)
-	SB.Append("End Sub")
-	Return SB.ToString
+    Log($"Generating code for ${result.TypeName} table..."$)
+    Dim SB As StringBuilder
+    SB.Initialize
+    
+    SB.Append("Public Sub ").Append($"Create${result.TypeName}Table"$).Append(CRLF)
+    SB.Append(TAB).Append($"Log("Creating ${result.TypeName} table...")"$).Append(CRLF)
+    SB.Append(TAB).Append("DB.Open").Append(CRLF)
+    SB.Append(TAB).Append($"DB.Table = "${result.TypeName}""$).Append(CRLF)
+    
+    Dim fields As Map = result.Fields
+    For Each Key As String In fields.Keys
+        Log($"  • ${Key} -> ${fields.Get(Key)}"$)
+        Dim Value As String = fields.Get(Key)
+        Select Value.ToLowerCase
+            Case "int", "long"
+                SB.Append(TAB).Append($"DB.Columns.Add(CreateMap("Name": "${Key}", "Type": DB.INTEGER, "Default": "0"))"$).Append(CRLF)
+            Case "byte", "bytes"
+                SB.Append(TAB).Append($"DB.Columns.Add(CreateMap("Name": "${Key.Replace("()", "")}", "Type": DB.BLOB))"$).Append(CRLF)
+            Case "double", "float"
+                SB.Append(TAB).Append($"DB.Columns.Add(CreateMap("Name": "${Key}", "Type": DB.DECIMAL))"$).Append(CRLF)
+            Case Else ' String / Text
+                SB.Append(TAB).Append($"DB.Columns.Add(CreateMap("Name": "${Key}"))"$).Append(CRLF)
+        End Select
+    Next
+    
+    SB.Append(TAB).Append("DB.Create").Append(CRLF).Append(TAB).Append(CRLF)
+    SB.Append(TAB).Append("Wait For (DB.ExecuteBatchAsync) Complete (Success As Boolean)").Append(CRLF)
+    SB.Append(TAB).Append("If Success Then").Append(CRLF)
+    SB.Append(TAB).Append(TAB).Append($"Log("Table ${result.TypeName} created successfully!")"$).Append(CRLF)
+    SB.Append(TAB).Append("Else").Append(CRLF)
+    SB.Append(TAB).Append(TAB).Append($"Log("Table ${result.TypeName} creation failed!")"$).Append(CRLF)
+    SB.Append(TAB).Append("End If").Append(CRLF)
+    SB.Append(TAB).Append("DB.Close").Append(CRLF)
+    SB.Append("End Sub")
+    
+    Return SB.ToString
 End Sub
